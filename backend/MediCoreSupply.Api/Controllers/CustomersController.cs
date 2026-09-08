@@ -83,6 +83,7 @@ public class CreateCustomerRequest
 
     public string? ContactName { get; set; }
 
+    [EmailAddress]
     public string? Email { get; set; }
 
     public string? Phone { get; set; }
