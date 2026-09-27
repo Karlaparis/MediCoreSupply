@@ -10,7 +10,15 @@ namespace MediCoreSupply.Api.Controllers;
 [Route("api/orders")]
 public class OrdersController : ControllerBase
 {
-    private static readonly HashSet<OrderStatus> TerminalStatuses = new() { OrderStatus.Delivered, OrderStatus.Cancelled };
+    // The order workflow only moves forward. Delivered and Cancelled are final.
+    private static readonly Dictionary<OrderStatus, OrderStatus[]> AllowedTransitions = new()
+    {
+        [OrderStatus.Pending] = [OrderStatus.Confirmed, OrderStatus.Cancelled],
+        [OrderStatus.Confirmed] = [OrderStatus.Shipped, OrderStatus.Cancelled],
+        [OrderStatus.Shipped] = [OrderStatus.Delivered],
+        [OrderStatus.Delivered] = [],
+        [OrderStatus.Cancelled] = []
+    };
 
     private readonly MediCoreSupplyDbContext _context;
 
@@ -57,6 +65,15 @@ public class OrdersController : ControllerBase
             {
                 Status = StatusCodes.Status400BadRequest,
                 Title = $"Customer {request.CustomerId} does not exist."
+            });
+        }
+
+        if (!customer.IsActive)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = $"Customer {customer.Name} is inactive and cannot place orders."
             });
         }
 
@@ -129,12 +146,16 @@ public class OrdersController : ControllerBase
         if (order is null)
             return NotFound();
 
-        if (TerminalStatuses.Contains(order.Status))
+        var allowed = AllowedTransitions[order.Status];
+        if (!allowed.Contains(request.Status))
         {
             return Conflict(new ProblemDetails
             {
                 Status = StatusCodes.Status409Conflict,
-                Title = $"Order {order.OrderNumber} is already {order.Status} and cannot change status."
+                Title = $"Order {order.OrderNumber} cannot move from {order.Status} to {request.Status}.",
+                Detail = allowed.Length == 0
+                    ? $"{order.Status} is a final status."
+                    : $"Allowed next statuses: {string.Join(", ", allowed)}."
             });
         }
 

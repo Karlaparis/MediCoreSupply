@@ -40,6 +40,29 @@ if (app.Environment.IsDevelopment())
     await DbSeeder.SeedAsync(db);
 }
 
+// Read-only mode for the public demo: reads are allowed, changes are refused.
+// On in appsettings.Production.json; override with the app setting Api__ReadOnly=false.
+if (app.Configuration.GetValue<bool>("Api:ReadOnly"))
+{
+    app.Use(async (context, next) =>
+    {
+        var method = context.Request.Method;
+        var isRead = HttpMethods.IsGet(method) || HttpMethods.IsHead(method) || HttpMethods.IsOptions(method);
+
+        if (context.Request.Path.StartsWithSegments("/api") && !isRead)
+        {
+            await Results.Problem(
+                statusCode: StatusCodes.Status403Forbidden,
+                title: "This demo API is read-only.",
+                detail: "Creating, updating and deleting data is disabled on the public deployment.")
+                .ExecuteAsync(context);
+            return;
+        }
+
+        await next(context);
+    });
+}
+
 app.UseHttpsRedirection();
 
 app.UseAuthorization();
