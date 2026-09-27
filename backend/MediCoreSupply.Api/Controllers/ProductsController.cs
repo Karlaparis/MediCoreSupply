@@ -90,6 +90,77 @@ public class ProductsController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = product.Id }, response);
     }
 
+    [HttpPut("{id:int}")]
+    public async Task<ActionResult<ProductResponse>> Update(int id, UpdateProductRequest request, CancellationToken cancellationToken)
+    {
+        var product = await _context.Products.SingleOrDefaultAsync(p => p.Id == id, cancellationToken);
+
+        if (product is null)
+            return NotFound();
+
+        var categoryExists = await _context.Categories.AnyAsync(c => c.Id == request.CategoryId, cancellationToken);
+        if (!categoryExists)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = $"Category {request.CategoryId} does not exist."
+            });
+        }
+
+        product.Sku = request.Sku.Trim();
+        product.Name = request.Name.Trim();
+        product.Description = request.Description;
+        product.UnitOfMeasure = request.UnitOfMeasure.Trim();
+        product.UnitPrice = request.UnitPrice;
+        product.RequiresPrescription = request.RequiresPrescription;
+        product.IsActive = request.IsActive;
+        product.CategoryId = request.CategoryId;
+
+        try
+        {
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is SqlException { Number: 2601 or 2627 })
+        {
+            return Conflict(new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "A product with this SKU already exists."
+            });
+        }
+
+        await _context.Entry(product).Reference(p => p.Category).LoadAsync(cancellationToken);
+
+        return ToResponse(product);
+    }
+
+    // Deleting a product also deletes its inventory records (cascade).
+    // Products that appear on orders are kept for order history; deactivate them instead.
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
+    {
+        var product = await _context.Products.SingleOrDefaultAsync(p => p.Id == id, cancellationToken);
+
+        if (product is null)
+            return NotFound();
+
+        if (await _context.OrderItems.AnyAsync(i => i.ProductId == id, cancellationToken))
+        {
+            return Conflict(new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "This product appears on orders and cannot be deleted.",
+                Detail = "Set isActive to false to retire it instead."
+            });
+        }
+
+        _context.Products.Remove(product);
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return NoContent();
+    }
+
     private static ProductResponse ToResponse(Product product) => new(
         product.Id,
         product.Sku,
@@ -123,6 +194,32 @@ public class CreateProductRequest
     public decimal UnitPrice { get; set; }
 
     public bool RequiresPrescription { get; set; }
+
+    public int CategoryId { get; set; }
+}
+
+public class UpdateProductRequest
+{
+    [Required]
+    [MaxLength(64)]
+    public string Sku { get; set; } = string.Empty;
+
+    [Required]
+    [MaxLength(200)]
+    public string Name { get; set; } = string.Empty;
+
+    public string? Description { get; set; }
+
+    [Required]
+    [MaxLength(32)]
+    public string UnitOfMeasure { get; set; } = string.Empty;
+
+    [Range(0, double.MaxValue)]
+    public decimal UnitPrice { get; set; }
+
+    public bool RequiresPrescription { get; set; }
+
+    public bool IsActive { get; set; } = true;
 
     public int CategoryId { get; set; }
 }

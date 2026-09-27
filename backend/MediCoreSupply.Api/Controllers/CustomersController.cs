@@ -62,6 +62,52 @@ public class CustomersController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = customer.Id }, response);
     }
 
+    [HttpPut("{id:int}")]
+    public async Task<ActionResult<CustomerResponse>> Update(int id, UpdateCustomerRequest request, CancellationToken cancellationToken)
+    {
+        var customer = await _context.Customers.SingleOrDefaultAsync(c => c.Id == id, cancellationToken);
+
+        if (customer is null)
+            return NotFound();
+
+        customer.Name = request.Name.Trim();
+        customer.Type = request.Type;
+        customer.ContactName = request.ContactName;
+        customer.Email = request.Email;
+        customer.Phone = request.Phone;
+        customer.Address = request.Address.Trim();
+        customer.IsActive = request.IsActive;
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return ToResponse(customer);
+    }
+
+    // Customers with orders are kept for order history; deactivate them instead.
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
+    {
+        var customer = await _context.Customers.SingleOrDefaultAsync(c => c.Id == id, cancellationToken);
+
+        if (customer is null)
+            return NotFound();
+
+        if (await _context.Orders.AnyAsync(o => o.CustomerId == id, cancellationToken))
+        {
+            return Conflict(new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "This customer has orders and cannot be deleted.",
+                Detail = "Set isActive to false to deactivate the customer instead."
+            });
+        }
+
+        _context.Customers.Remove(customer);
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return NoContent();
+    }
+
     private static CustomerResponse ToResponse(Customer customer) => new(
         customer.Id,
         customer.Name,
@@ -91,6 +137,28 @@ public class CreateCustomerRequest
     [Required]
     [MaxLength(400)]
     public string Address { get; set; } = string.Empty;
+}
+
+public class UpdateCustomerRequest
+{
+    [Required]
+    [MaxLength(200)]
+    public string Name { get; set; } = string.Empty;
+
+    public CustomerType Type { get; set; }
+
+    public string? ContactName { get; set; }
+
+    [EmailAddress]
+    public string? Email { get; set; }
+
+    public string? Phone { get; set; }
+
+    [Required]
+    [MaxLength(400)]
+    public string Address { get; set; } = string.Empty;
+
+    public bool IsActive { get; set; } = true;
 }
 
 public record CustomerResponse(

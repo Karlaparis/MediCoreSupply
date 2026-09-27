@@ -57,9 +57,60 @@ public class WarehousesController : ControllerBase
         var response = new WarehouseResponse(warehouse.Id, warehouse.Name, warehouse.Address);
         return CreatedAtAction(nameof(GetById), new { id = warehouse.Id }, response);
     }
+
+    [HttpPut("{id:int}")]
+    public async Task<ActionResult<WarehouseResponse>> Update(int id, UpdateWarehouseRequest request, CancellationToken cancellationToken)
+    {
+        var warehouse = await _context.Warehouses.SingleOrDefaultAsync(w => w.Id == id, cancellationToken);
+
+        if (warehouse is null)
+            return NotFound();
+
+        warehouse.Name = request.Name.Trim();
+        warehouse.Address = request.Address.Trim();
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return new WarehouseResponse(warehouse.Id, warehouse.Name, warehouse.Address);
+    }
+
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
+    {
+        var warehouse = await _context.Warehouses.SingleOrDefaultAsync(w => w.Id == id, cancellationToken);
+
+        if (warehouse is null)
+            return NotFound();
+
+        if (await _context.InventoryItems.AnyAsync(i => i.WarehouseId == id, cancellationToken))
+        {
+            return Conflict(new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "This warehouse still has inventory records and cannot be deleted.",
+                Detail = "Delete or move its inventory records first."
+            });
+        }
+
+        _context.Warehouses.Remove(warehouse);
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return NoContent();
+    }
 }
 
 public class CreateWarehouseRequest
+{
+    [Required]
+    [MaxLength(200)]
+    public string Name { get; set; } = string.Empty;
+
+    [Required]
+    [MaxLength(400)]
+    public string Address { get; set; } = string.Empty;
+}
+
+public class UpdateWarehouseRequest
 {
     [Required]
     [MaxLength(200)]

@@ -26,11 +26,14 @@ var app = builder.Build();
 app.UseExceptionHandler();
 
 // Configure the HTTP request pipeline.
+
+// Swagger is enabled in every environment: until the frontend exists, the Swagger UI
+// is the public demo of the deployed API.
+app.UseSwagger();
+app.UseSwaggerUI();
+
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<MediCoreSupplyDbContext>();
     await db.Database.MigrateAsync();
@@ -42,5 +45,8 @@ app.UseHttpsRedirection();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// Send visitors of the site root to the Swagger UI instead of a 404.
+app.MapGet("/", () => Results.Redirect("/swagger")).ExcludeFromDescription();
 
 app.Run();

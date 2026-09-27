@@ -70,9 +70,69 @@ public class CategoriesController : ControllerBase
         var response = new CategoryResponse(category.Id, category.Name, category.Description);
         return CreatedAtAction(nameof(GetById), new { id = category.Id }, response);
     }
+
+    [HttpPut("{id:int}")]
+    public async Task<ActionResult<CategoryResponse>> Update(int id, UpdateCategoryRequest request, CancellationToken cancellationToken)
+    {
+        var category = await _context.Categories.SingleOrDefaultAsync(c => c.Id == id, cancellationToken);
+
+        if (category is null)
+            return NotFound();
+
+        category.Name = request.Name.Trim();
+        category.Description = request.Description;
+
+        try
+        {
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is SqlException { Number: 2601 or 2627 })
+        {
+            return Conflict(new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "A category with this name already exists."
+            });
+        }
+
+        return new CategoryResponse(category.Id, category.Name, category.Description);
+    }
+
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
+    {
+        var category = await _context.Categories.SingleOrDefaultAsync(c => c.Id == id, cancellationToken);
+
+        if (category is null)
+            return NotFound();
+
+        if (await _context.Products.AnyAsync(p => p.CategoryId == id, cancellationToken))
+        {
+            return Conflict(new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "This category still has products and cannot be deleted.",
+                Detail = "Move or delete its products first."
+            });
+        }
+
+        _context.Categories.Remove(category);
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return NoContent();
+    }
 }
 
 public class CreateCategoryRequest
+{
+    [Required]
+    [MaxLength(200)]
+    public string Name { get; set; } = string.Empty;
+
+    public string? Description { get; set; }
+}
+
+public class UpdateCategoryRequest
 {
     [Required]
     [MaxLength(200)]

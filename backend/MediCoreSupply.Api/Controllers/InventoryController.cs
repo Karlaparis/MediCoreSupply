@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using MediCoreSupply.Api.Data;
 using MediCoreSupply.Api.Domain.Entities;
 using Microsoft.AspNetCore.Mvc;
@@ -113,6 +114,41 @@ public class InventoryController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = item.Id }, response);
     }
 
+    // Only the stock levels can change; a different product or warehouse is a different inventory record.
+    [HttpPut("{id:int}")]
+    public async Task<ActionResult<InventoryItemResponse>> Update(int id, UpdateInventoryItemRequest request, CancellationToken cancellationToken)
+    {
+        var item = await _context.InventoryItems
+            .Include(i => i.Product)
+            .Include(i => i.Warehouse)
+            .SingleOrDefaultAsync(i => i.Id == id, cancellationToken);
+
+        if (item is null)
+            return NotFound();
+
+        item.QuantityOnHand = request.QuantityOnHand;
+        item.ReorderLevel = request.ReorderLevel;
+        item.ReorderQuantity = request.ReorderQuantity;
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return ToResponse(item);
+    }
+
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
+    {
+        var item = await _context.InventoryItems.SingleOrDefaultAsync(i => i.Id == id, cancellationToken);
+
+        if (item is null)
+            return NotFound();
+
+        _context.InventoryItems.Remove(item);
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return NoContent();
+    }
+
     private static InventoryItemResponse ToResponse(InventoryItem item) => new(
         item.Id,
         item.ProductId,
@@ -130,10 +166,25 @@ public class CreateInventoryItemRequest
 
     public int WarehouseId { get; set; }
 
+    [Range(0, int.MaxValue)]
     public int QuantityOnHand { get; set; }
 
+    [Range(0, int.MaxValue)]
     public int ReorderLevel { get; set; }
 
+    [Range(0, int.MaxValue)]
+    public int ReorderQuantity { get; set; }
+}
+
+public class UpdateInventoryItemRequest
+{
+    [Range(0, int.MaxValue)]
+    public int QuantityOnHand { get; set; }
+
+    [Range(0, int.MaxValue)]
+    public int ReorderLevel { get; set; }
+
+    [Range(0, int.MaxValue)]
     public int ReorderQuantity { get; set; }
 }
 
